@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login SuperID (SDK)</title>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; margin: 0; }
+    .container { width: 100%; max-width: 450px; padding: 40px; border: 1px solid #ddd; border-radius: 12px; background-color: #ffffff; box-shadow: 0px 4px 25px rgba(0, 0, 0, 0.1); text-align: center; }
+    h2 { margin-bottom: 24px; color: #333; font-weight: 600; }
+    .form-group { margin-bottom: 20px; text-align: left; }
+    label { display: block; margin-bottom: 8px; color: #555; font-weight: 500; }
+    input[type="email"], input[type="password"] { width: 100%; padding: 12px 15px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; }
+    .btn { width: 100%; padding: 12px 15px; font-size: 16px; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; margin-bottom: 12px; }
+    .btn-login { background-color: #007BFF; color: #fff; }
+    .btn-cadastro { background-color: #6c757d; color: #fff; }
+    .btn-superid { background-color: #17a2b8; color: #fff; margin-top: 15px; }
+    #qrcode-wrapper { display: none; margin-top: 20px; padding: 15px; border: 1px dashed #ccc; border-radius: 8px; background-color: #f9f9f9; }
+    #qrcodeImage { width: 200px; height: 200px; margin: 0 auto 10px auto; display: block; border: 1px solid #eee; }
+    #statusMessage { font-size: 0.9em; color: #555; min-height: 1.2em; /* Para evitar que o layout pule */}
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h2>Login</h2>
+    <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" placeholder="seuemail@exemplo.com">
+    </div>
+    <div class="form-group">
+        <label for="password">Senha</label>
+        <input type="password" id="password" placeholder="Sua senha">
+    </div>
+    <button class="btn btn-login">Login</button>
+    <button class="btn btn-cadastro">Cadastrar</button>
+    <button class="btn btn-superid" onclick="gerarQRCodeSuperID()">Logar com SuperID</button>
+
+    <div id="qrcode-wrapper">
+      <img id="qrcodeImage" alt="QR Code SuperID">
+      <p id="statusMessage"></p>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-functions-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyD86ryABiVB_rYzLX1Yo3Oe07oEmK88Y3P8",
+      authDomain: "superid-17778.firebaseapp.com",
+      projectId: "superid-17778",
+      storageBucket: "superid-17778.firebaseapp.com",
+      messagingSenderId: "294507309073",
+      appId: "1:294507309073:web:21c2329a4b0ecd033ae9b0"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const functions = firebase.app().functions('southamerica-east1'); 
+
+    let currentLoginToken = null;
+    let unsubscribeLoginListener = null; 
+
+    async function gerarQRCodeSuperID() {
+      const wrapper = document.getElementById('qrcode-wrapper');
+      const qrImageElement = document.getElementById('qrcodeImage');
+      const statusMessageElement = document.getElementById('statusMessage');
+
+      if (unsubscribeLoginListener) {
+        unsubscribeLoginListener();
+        unsubscribeLoginListener = null;
+      }
+
+      qrImageElement.src = '';
+      statusMessageElement.textContent = 'Gerando QR Code, aguarde...';
+      wrapper.style.display = 'block';
+      qrImageElement.style.display = 'block'; 
+
+      const apiKey = "X9luxz8RhBQIREpVwWUGeXT6FzuOIZTheUsyENZTX7BrJgxMjdn17AtWIYF9p1ZIQpAVx4g_aacvRzWhbbhzBYssBCwt4hjX0gPB0zl2twuAkRLXEGtb_pFAyLj3y68F";
+      
+      try {
+        const performAuthCallable = functions.httpsCallable('performAuth');
+        const response = await performAuthCallable({ apiKey: apiKey });
+
+        if (response.data && response.data.status === "SUCCESS" && response.data.payload) {
+          qrImageElement.src = response.data.payload.qrCode;
+          currentLoginToken = response.data.payload.loginToken; // Este é o ID do documento no Firestore
+          statusMessageElement.textContent = 'QR Code gerado! Escaneie com o app SuperID.';
+          
+          escutarStatusLogin(currentLoginToken); 
+
+        } else {
+          statusMessageElement.textContent = 'Erro ao processar QR Code: ' + (response.data ? response.data.message : 'Resposta inesperada da função.');
+          wrapper.style.display = 'none';
+          console.error("Resposta da função performAuth não foi sucesso ou payload ausente:", response.data);
+        }
+      } catch (error) {
+        statusMessageElement.textContent = `Falha ao gerar QR Code: ${error.message}. Verifique o console.`;
+        wrapper.style.display = 'none';
+        console.error("Erro ao chamar performAuth via httpsCallable:", error);
+        if (error.code) console.error("Código do erro Firebase:", error.code);
+        if (error.details) console.error("Detalhes do erro Firebase:", error.details);
+      }
+    }
+
+    function escutarStatusLogin(token) {
+      const statusMessageElement = document.getElementById('statusMessage');
+      const qrImageElement = document.getElementById('qrcodeImage');
+      statusMessageElement.textContent = 'Aguardando confirmação do app...';
+
+      if (!db) {
+        console.error("Firestore (db) não foi inicializado.");
+        statusMessageElement.textContent = 'Erro: Firestore não inicializado.';
+        return;
+      }
+      if (!token) {
+          console.error("Token de login inválido para escutar.");
+          statusMessageElement.textContent = 'Erro: Token de login inválido.';
+          return;
+      }
+
+      // O 'token' aqui é o loginToken, que agora é o ID do documento na coleção 'login'
+      const docRef = db.collection('login').doc(token);
+
+      unsubscribeLoginListener = docRef.onSnapshot(doc => {
+        if (doc.exists) {
+          const data = doc.data();
+          // **PENDÊNCIA IMPORTANTE:** Confirme com o Eric ou inspecione o Firestore
+          // para saber os nomes exatos dos campos que o app mobile usa para 'user' e 'loginConfirmedAt'.
+          if (data.user && data.loginConfirmedAt) { 
+            statusMessageElement.textContent = 'Login confirmado com sucesso!';
+            qrImageElement.style.display = 'none'; 
+            
+            if (unsubscribeLoginListener) {
+              unsubscribeLoginListener(); 
+              unsubscribeLoginListener = null;
+            }
+            alert('Login realizado com sucesso!'); 
+            // TODO: Adicionar qualquer outra ação após login bem-sucedido
+            // Ex: redirecionar o usuário, mostrar informações do usuário (data.user), etc.
+          }
+        } else {
+          statusMessageElement.textContent = 'Sessão de login não encontrada ou expirou.';
+          if (unsubscribeLoginListener) {
+            unsubscribeLoginListener();
+            unsubscribeLoginListener = null;
+          }
+        }
+      }, err => {
+        console.error("Erro ao escutar status do login:", err);
+        statusMessageElement.textContent = 'Erro ao verificar status do login.';
+        if (unsubscribeLoginListener) {
+          unsubscribeLoginListener();
+          unsubscribeLoginListener = null;
+        }
+      });
+    }
+  </script>
+</body>
+</html>
